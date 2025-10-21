@@ -4,6 +4,7 @@ import android.Manifest
 import android.os.Bundle
 import android.util.Log
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
@@ -42,6 +43,7 @@ class MainActivity : AppCompatActivity() {
     val configIds = ConfigIdGenerator.generateConfigIds()
     val dpfUnitIds = DfpUnitIdGenerator.generateDfpUnitIds()
 
+    var containers = mutableMapOf<String, FrameLayout>()
     var viewList : LinearLayout? = null
 
     @RequiresPermission(Manifest.permission.INTERNET)
@@ -55,11 +57,13 @@ class MainActivity : AppCompatActivity() {
             insets
         }
 
+        containers = generateViewContainerMap()
+
         var initialized = false
         CoroutineScope(Dispatchers.IO).launch {
             // Initialize the Google Mobile Ads SDK on a background thread.
             MobileAds.initialize(this@MainActivity) {
-                Log.i("MainActivity", "Google Mobile Ads SDK initialized.")
+                Log.i("Stroeer", "Google Mobile Ads SDK initialized.")
                 initialized = true
             }
         }
@@ -75,36 +79,22 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this@MainActivity, "SDK not initialized yet. wait for a while", Toast.LENGTH_SHORT).show()
                     return@launch
                 }
-                for(view in viewList!!.children) {
-                    if(view is AdManagerAdView) {
-                        view.destroy()
+
+                // remove all views
+                for(container in containers.values){
+                    container.children.forEach {
+                        container.removeView(it)
+                        if(it is AdManagerAdView) {
+                            it.destroy()
+                        }
                     }
                 }
-                viewList!!.removeAllViews()
+
+
                 for(slotName in configIds.keys) {
                     val result = startPrebidFetch(slotName)
-                    Log.i("MainActivity", "Download result for $slotName: $result")
                     callDfp(slotName, result)
                 }
-            }
-        }
-    }
-
-    val client = OkHttpClient()
-
-    private suspend fun downloadJson(url: String): String {
-        return withContext(Dispatchers.IO) {
-            val request = Request.Builder().url(url).build()
-            try {
-                client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        "Failed: HTTP ${response.code}"
-                    } else {
-                        response.body?.string() ?: "Empty body"
-                    }
-                }
-            } catch (e: IOException) {
-                "Error: ${e.message}"
             }
         }
     }
@@ -135,7 +125,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         gamView.loadAd(request)
-        viewList!!.addView(gamView)
+        containers[slotName]!!.addView(gamView)
     }
 
 
@@ -193,7 +183,7 @@ class MainActivity : AppCompatActivity() {
         return suspendCancellableCoroutine { cont ->
             adUnit.fetchDemand(object : OnFetchDemandResult {
                 override fun onComplete(bidInfo: BidInfo) {
-                    Log.i("Stroeer", "Bidding result = ${bidInfo.targetingKeywords.toString()}")
+                    Log.i("Stroeer", "Bidding result = ${bidInfo.targetingKeywords.toString()} - ${slotName}")
 
                     val result = mutableMapOf<String, String>()
                     if (bidInfo.targetingKeywords != null && bidInfo.targetingKeywords!!.isNotEmpty()) {
@@ -207,6 +197,15 @@ class MainActivity : AppCompatActivity() {
                 }
             })
         }
+    }
+
+    fun generateViewContainerMap(): MutableMap<String, FrameLayout>{
+        val viewContainerMap = mutableMapOf<String, FrameLayout>()
+        for(key in configIds.keys){
+            val resId = resources.getIdentifier(key, "id", packageName)
+            viewContainerMap.put(key, findViewById<FrameLayout>(resId))
+        }
+        return viewContainerMap
     }
 
 }
